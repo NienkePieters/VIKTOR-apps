@@ -1,50 +1,57 @@
-
-import pandas as pd
-import numpy as np
 from rectpack import newPacker
 import rectpack.packer as packer
-import matplotlib.pyplot as plt
 
+import numpy as np
+from collections import deque
 
-# Function Solver
-def solver(n_128, n_68, n_64, n_1210, n_610, n_65, bins):
-    ''' For optimizing how pallets should be placed in the container. The inputs are the quantities of each pallet type and the container size.'''
+def solver_3d(boxes, container):
+    container_width, container_length, container_height = container
 
-    # Set Pallet Buffer
-    bx = 5 # buffer x
-    by = 5 # buffer y
-    pal_128 = [120 + bx, 80 + by]
-    pal_68 = [60 + bx, 80 + by]
-    pal_64 = [60 + bx, 40 + by]
-    pal_1210 = [120 + bx, 100 + by]
-    pal_610 = [60 + bx, 100 + by]
-    pal_65 = [60 + bx, 50 + by]
-    
-    # Create Rectangles / Pallets to load
-    rectangles =[pal_128 for i in range(n_128)] + [pal_68 for i in range(n_68)] + [pal_64 for i in range(n_64)] +\
-                [pal_1210 for i in range(n_1210)] + [pal_610 for i in range(n_610)] + [pal_65 for i in range(n_65)]        
+    # Sort boxes by volume (largest first)
+    sorted_boxes = sorted(boxes, key=lambda b: b['length'] * b['width'] * b['height'] * b['quantity'], reverse=True)
 
-    # Build the Packer
-    pack = newPacker(mode = packer.PackingMode.Offline, bin_algo = packer.PackingBin.Global,
-                     rotation=True)
+    # Initialize container space
+    space = np.zeros((container_width, container_length, container_height), dtype=bool)
 
-    # Add the rectangles to packing queue
-    for r in rectangles:
-        pack.add_rect(*r)
+    placed_boxes = []
+    empty_spaces = deque([(0, 0, 0)])
 
-    # Add the bins where the rectangles will be placed
-    for b in bins:
-        pack.add_bin(*b)
+    for box in sorted_boxes:
+        for _ in range(int(box['quantity'])):
+            placed = False
+            for _ in range(len(empty_spaces)):
+                x, y, z = empty_spaces.popleft()
+                if (x + box['length'] <= container_width and
+                    y + box['width'] <= container_length and
+                    z + box['height'] <= container_height and
+                    not np.any(space[x:x+box['length'], y:y+box['width'], z:z+box['height']])):
+                    
+                    space[x:x+box['length'], y:y+box['width'], z:z+box['height']] = True
+                    placed_boxes.append({
+                        'x': x, 'y': y, 'z': z,
+                        'length': box['length'], 'width': box['width'], 'height': box['height']
+                    })
+                    placed = True
 
-    # Start packing
-    pack.pack()
+                    # Add new empty spaces
+                    empty_spaces.append((x + box['length'], y, z))
+                    empty_spaces.append((x, y + box['width'], z))
+                    empty_spaces.append((x, y, z + box['height']))
+                    break
+                else:
+                    empty_spaces.append((x, y, z))
 
-    # Full rectangle list
-    all_rects = pack.rect_list()
+            if not placed:
+                raise ValueError("Not all boxes could fit in the container")
 
-    # Pallets with dimensions
-    all_pals = [sorted([p[3], p[4]]) for p in all_rects]
+    return placed_boxes
 
-    return all_rects, all_pals
+def solver(boxes, bins):
+    container_width, container_length, container_height = bins[0]
 
- 
+    try:
+        placed_boxes = solver_3d(boxes, (container_width, container_length, container_height))
+    except ValueError as e:
+        return str(e), None
+
+    return placed_boxes, None

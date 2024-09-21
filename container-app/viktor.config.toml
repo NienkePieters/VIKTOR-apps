@@ -1,1 +1,2 @@
 app_type = 'editor'
+python_version = '3.7'
